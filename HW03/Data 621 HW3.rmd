@@ -1,0 +1,485 @@
+---
+title: "Data 621 - HW3"
+author: "Farhana Zahir, Vijaya Cherukuri, Scott Reed, Shovon Biswas, Habib Khan"
+date: "10/11/2020"
+mainfront: DejaVu Sans
+output:
+  pdf_document: 
+    toc: yes
+    latex_engine: xelatex
+  html_document:
+    toc: yes
+    toc_float: yes
+    code_folding: hide
+#font-family: DejaVu Sans
+#mainfont: DejaVu Sans
+---
+\newpage
+
+# Overview
+
+In this homework assignment, you will explore, analyze and model a data set containing information on crime for various neighborhoods of a major city. Each record has a response variable indicating whether or not the crime rate is above the median crime rate (1) or not(0). <br>
+<br>
+Your objective is to build a binary logistic regression model on the training data set to predict whether the neighborhood will be at risk for high crime levels. You will provide classifications and probabilities for the evaluation data set using your binary logistic regression model. You can only use the variables given to you (or variables that you derive from the variables provided). Below is a short description of the variables of interest in the data set: <br>
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+knitr::include_graphics('3.png')
+```
+
+
+# 1 - Data Exploration
+
+
+In this section, we are going to explore the data to see the data type and data structure, We will also check the correlation among the variables and most importantly to see if there are missing values in the data but first let's read both training and test datasets.
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# Reading multiple libraries together with pacman's p_load function
+#Sys.setenv(JAVA_HOME= "C:\\Program Files\\Java\\jre1.8.0_261")
+pacman::p_load(naniar, tidyverse, knitr, kableExtra, skimr, Amelia, reshape2, stats, corrplot,caret, e1071, jtools, performance, glmulti,cvms, ROCR)
+```
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+training <- read.csv('C:/Users/hukha/Desktop/MS - Data Science/Data 621/HW3/crime-training-data_modified.csv')
+training2 <- training # for melting and boxploting
+evaluation <- read.csv('C:/Users/hukha/Desktop/MS - Data Science/Data 621/HW3/crime-evaluation-data_modified.csv')
+
+training %>% head() %>% kable() %>% kableExtra::kable_styling()
+
+# Converting into factor variables
+var <- c("chas","target")
+training[,var] <- lapply(training[,var], as.factor)
+evaluation$chas <- as.factor(evaluation$chas)
+```
+
+Both training and evaluation datasets have been read using read.csv function and above table is a sample of training dataset. Before jumping in model building, we have to explore what kind of dataset we have, is it usable at this moment or we have to do data preparation which is the case usually. According to variable's documentation, target and chas seem to be factor variables that's why we converted them into factors to be able to explore the data in a right way. Now let's explore the data structure using skim function from skimr package. This is an efficient function which not only produces the statistics summary but also builds histogram for each numberic variable, show number of missing values and quantiles. This gives a bird eye view of the training dataset. We double checked the total number of missing values with colSums and missmap functions as well to verify if we have any missing value and seems like we do not have missing values. 
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+Sys.setlocale("LC_CTYPE", "Chinese") # Don't remove this line otherwise histogram will not show up correctly
+skim(training)  %>% kable() %>% kable_styling(full_width=FALSE) # Using skimr package
+missmap(training, main="Missing Values") # using Amelia package
+colSums(is.na(training))
+```
+
+
+It's important to check the correlation of predictors among themselves and especially with the target variable. Now we are going to create boxplot and correlations to explore more.
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# Boxplot to see distributions with target variable
+melt(training2, id.vars='target') %>% mutate(target = as.factor(target)) %>% 
+  ggplot(., aes(x=variable, y=value))+geom_boxplot(aes(fill=target))+facet_wrap(~variable, dir='h',scales='free')+ labs(title="BoxPlot - Predictors Data Distribution with Target Variable")
+
+# Correlation matrix among variables
+training2 %>% 
+  cor(., use = "complete.obs") %>%
+  corrplot(., method = "color", type = "upper", tl.col = "black", tl.cex=.8, diag = FALSE)
+
+# Correlation table 
+correlation <- training2 %>% 
+  cor(., use = "complete.obs") %>%
+  as.data.frame() %>%
+  rownames_to_column()%>%
+  gather(Variable, Correlation, -rowname) 
+
+correlation %>%
+  filter(Variable == "target") %>%
+     arrange(desc(Correlation)) %>%
+  kable() %>%
+  kable_styling(full_width = FALSE)
+
+# Density plot to check normality
+melt(training2, id.vars='target') %>% mutate(target = as.factor(target)) %>% 
+  ggplot(., aes(x=value))+geom_density(fill='gray')+facet_wrap(~variable, scales='free')+
+  labs(title="Density Plot for Normality and Skewness") + 
+  theme_classic()
+
+# Skewness and outliers
+sapply(training2, skewness, function(x) skewness(x))
+```
+
+According to correlation plot and matrix, nox, age, rad, tax and indus are positively correlated with target. lstat, ptratio and chas have weak correlations with target variable. dis have good negative correlation followed by zn medv and rm which do not seem to have strong correlation with target varible. It is also important to discuss that the predictors are mostly not normally distributed with skewed on both sides other than rm. We might have to go through data preparation step to make the data usable for model building. In last, we are going to split the training set into two subsets i.e. train and test which will be helpful for accuracy checking before predicting the target variable in evaluation dataset. 
+
+
+# 2 - Data Preparation
+
+There are few issues in the data. Although there are no missing values but most of the variables seem to be skewed and not normally distributed. Outliers have also seen in some variables which need to be checked either the values make sense or not. If not then some of the high outliers will be replaced with either median or knn function. We will also use log transformation before going ahead and we will explore if log transformation is enough.
+
+<br>
+<br>
+
+## Data Splitting 
+
+Let's start with splitting the training dataset into train and test datasets which will help us to check the accuracy of our model in the next step. Keep in mind that evaluation data does not have target variable because we will be predicting the values but how are we going to make sure the predicted values are accurate? The answer is data splitting i.e. training data. We will be using createDataPartition function from caret library to split the datasets with 70 percent train and 30 percent test data. It's important to check out the skewness as well as previously in boxplot we saw that there are some outliers but are they problematic? 
+
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# Data splitting into train and test datasets out of training2
+set.seed(1003)
+training_partition <- createDataPartition(training2$target, p=0.7, list = FALSE, times=1)
+train2 <- training2[training_partition, ]
+test2 <- training2[-training_partition, ]
+
+sapply(training2, skewness, function(x) skewness(x))
+```
+
+Skewness function from e1071 was used with sapply function to create the skewness of all the variables. If the values are positive then those variables are positively skewed and vice versa. If skewness is 0 then the data is perfectly symmetric but it's very unlikely in the real world scenario. Statisticians suggest anything under +1 and -1 to be in a safe zone. Another statistican has also considered anything under +2 and -2 are fine too. According to the above results, zn and chas are not symmetric and hence we have to use log transformation to make them symmetric but in this case we won't consider transforming chas because it is a categorical data. It will leave us using log transformation only on zn. Let's do this:
+
+
+
+## log transformation
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+train_log <- train2 # copy of basic model for log transformation
+test_log <- test2
+
+
+train_log$zn <- log10(train_log$zn + 1)
+test_log$zn <- log10(test_log$zn + 1)
+
+# Plot and check skewness
+sapply(train_log, skewness, function(x) skewness(x))
+ggplot(melt(train_log), aes(x=value))+geom_density()+facet_wrap(~variable, scales='free') + labs(title="Log Transformation")
+
+```
+
+Now it's very close to 1 which is still not ideal but will consider it safer than before for model building. We were planning to remove the extreme outliers but seems like we had only problem with zn which is resolved after transformation that's why we will continue working ahead. Plot has also slightly improved as compared with before. 
+
+
+
+## BoxCox Transformation
+
+Although log transformation has already made the data symmetrical but we will also boxcox transformation to see if using model based on boxcox transformation will give better results in terms of accuracy as compared with log transformed data or not. We will apply boxcox transformation both on train and test datasets. 
+
+
+
+```{r, message=FALSE, warning=FALSE,echo=FALSE}
+# Copy of train and test
+train_boxcox <- train2
+test_boxcox <- test2
+
+# Preprocessing
+preproc_value <- preProcess(train2[,-1] , c("BoxCox", "center", "scale"))
+
+# Transformation on both train and test datasets
+train_boxcox_transformed <- predict(preproc_value, train_boxcox)
+test_boxcox_transformed <- predict(preproc_value, test_boxcox)
+
+ggplot(melt(train_boxcox_transformed), aes(x=value))+geom_density()+facet_wrap(~variable, scales='free') + labs(title="BoxCox Transformation")
+sapply(train_boxcox_transformed, function(x) skewness(x))
+```
+Although the skewness did not improve much for zn but overall it seems to be symmetrical as compared with the results of log transformation. At this point we are not sure which transformation will give better predictions until later. We will keep both transformed datasets and will check them both as seperate models.
+<br>
+The data is ready to be used for model building. We are going to use backward elimination model and another model that will be result of cumulative variables that have collinearity. We will discuss about it in detail in the next step.
+
+# 3 - Build Models
+
+## Model 1 - Backward elimination on Log Transformed data
+
+In this model, we are going to use log transformed data and remove the least insignificant variables one-by-one until the model becomes completely significant. Let's dive in and see how this model is doing. We had checked the skewness for the variables and only zn seemed to be skewed for which we adjusted it to log + 1 which not only handled transformation but also handles missing value if exists. After creating a model, we had to remove chas, lstat, rm, indus, ptratio, tax and dis one by one to keep only the significant variables in the model and seems like only age, nox, rad and medv have significant impact on target with adjusted r-square of 0.59. R-square was not initially 0.59 which did not improve at all after eliminating the insignificant variables one by one and it makes sense as they have least to no impact on target variable. There were some collinearity between tax and rad but since tax has been excluded from the model that's why there is no more any multicollinearity among the variables as the values of VIF are less than 10. Important point is here that only zn was adjusted to log but since it was removed that's we can say model is normal and not transformed.
+
+
+```{r, message=FALSE,warning=FALSE, echo=FALSE}
+# creating model1
+model1 <- lm(target ~ nox + age+ rad+ medv, family= binomial, data= train_log)
+summ(model1)
+check_collinearity(model1) %>% kable(caption="Multicollinearity") %>% kable_styling(full_width = FALSE)
+```
+
+## Model 2 - Backward elimination on BoxCox Transformed data
+
+In this model, we will use the same concept to eliminate the insignificant variables one-by-one that have highest p-value but on boxcox transformed data to see if this model will make any better result or not. The model seems slightly better as compared with Model1. R2 is improved from 0.60 to 0.63 and adjusted r-sq is improved from 0.59 to 0.61. Also, dis came to be significant which was insignificant in Model1. We had to remove lstat, rm, indus, chas, ptratio, zn and tax from the model which are consistently insignificant. There is no multicollinearity as the values of VIF are less than 10. Statisticians suggest anything less than 10 is good which shows consistency with our previous model. Overall, the model is significant as per the p-value of F-stat. 
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+model2 <- lm(target ~ nox + age + dis + rad +  medv, family= binomial, data= train_boxcox_transformed)
+summ(model2)
+check_collinearity(model2) %>% kable(caption="Multicollinearity") %>% kable_styling(full_width = FALSE)
+```
+
+
+
+## Model 3 - Using Stepwise Regression
+
+Although we have used backward elimination in which we eliminated insignificant variables one by one from the model as discussed before. We can use step() function which is more robust and it is used for stepwise regression. Basically, it eliminates all the insignificant variables one-by-one under the hood and brings the significant variables. This model is used only to verify the result of Model2 using step-wise regression.
+
+```{r, message=FALSE,warning=FALSE, echo=FALSE}
+model3 <- step(model2)
+summ(model3)
+```
+
+## Model 4 - Using glmulti
+
+
+```{r, message=FALSE, warning=FALSE, include=FALSE, echo=FALSE}
+# Model4 using glmulti()
+model4 <- glmulti(target ~ ., data = train2, level = 1, method="h", crit = "aic", plotty = FALSE, fitfunction = "glm", family=binomial)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+summary(model4@objects[[1]]) 
+```
+
+glmulti() function from glmulti package is one of the best automated function which optimizes the best performing model through simulating all possible models under the hood and finds the best performing model. It takes few time to optimize the model though. We will see which model performed best in terms of performance and accuracy in the next section. 
+
+# 4 - Select Models
+
+## Model Performance
+
+In this section, we are going to select the best model out of all through using compare_performance and model_performance functions from performance package. It calculates AIC, BIC, R2 & adjusted r-sq, RMSE, BF and Performance_Score. If we take a look at first three models, model1 is doing great as the values of AIC and BIC both are lower in first three models. Even RMSE is lower as compared with model2 and model3. Model4 was calculated through glmulti() package which optimizes the model and gets the best. The value of AIC and BIC is lower than model1 which is good and r2 has also increased to 0.71 but RMSE has increased slightly. Overall, RMSEs in all models are very low so we won't worry much about that. We can say that Model4 is the best performing model in terms of AIC, BIC and R2 and hence we will select Model4. 
+
+```{r, message=FALSE,warning=FALSE, echo=FALSE}
+compare_performance(model1, model2, model3, rank = TRUE) %>% kable() %>% kable_styling()
+model_performance(model4@objects[[1]]) %>% kable() %>% kable_styling()
+```
+
+
+## Prediction Accuracy
+
+
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+test3 <- test2 # copy of test dataset 
+test3$target <- as.factor(test3$target)
+
+# Calculating confusion matrix for model1
+preds1 <- predict(model1, newdata = test3)
+preds1[preds1 > 0.05] = 1
+preds1[preds1 < 0.05] = 0
+preds1 <- as.factor(preds1)
+model1_cm <- confusionMatrix(preds1, test3$target,mode="everything")
+tidy1 <- tidy(model1_cm[[2]])
+model1_cm
+plot_confusion_matrix(tidy1, targets_col="Prediction", predictions_col = "Reference",counts_col = "n")
+
+
+
+# Calculating confusion matrix for model2
+preds2 <- predict(model2, newdata = test3)
+preds2[preds2 > 0.05] = 1
+preds2[preds2 < 0.05] = 0
+preds2 <- as.factor(preds2)
+model2_cm <- confusionMatrix(preds2, test3$target,mode="everything")
+tidy2 <- tidy(model2_cm[[2]])
+model2_cm
+plot_confusion_matrix(tidy2, targets_col="Prediction", predictions_col = "Reference",counts_col = "n")
+
+
+# Calculating confusion matrix for model3
+preds3 <- predict(model3, newdata = test3)
+preds3[preds3 > 0.05] = 1
+preds3[preds3 < 0.05] = 0
+preds3 <- as.factor(preds3)
+model3_cm <- confusionMatrix(preds3, test3$target,mode="everything")
+tidy3 <- tidy(model3_cm[[2]])
+model3_cm
+plot_confusion_matrix(tidy3, targets_col="Prediction", predictions_col = "Reference",counts_col = "n")
+
+
+# Calculating confusion matrix for model4
+preds4 <- predict(model4@objects[[1]], newdata = test3)
+preds4[preds4 > 0.05] = 1
+preds4[preds4 < 0.05] = 0
+preds4 <- as.factor(preds4)
+model4_cm <- confusionMatrix(preds4, test3$target,mode="everything")
+tidy4 <- tidy(model4_cm[[2]])
+model4_cm
+plot_confusion_matrix(tidy4, targets_col="Prediction", predictions_col = "Reference",counts_col = "n")
+
+
+```
+
+
+Model 1, 2 and 3 are the ones which we made out of some transformation and eliminating insignificant variables and seems like model 1 is the best as compared with Model 2 and Model 3. Model 1 has accuracy of 67.6 % as compared to Model 2 and 3 which have 53.2 percent. It makes sense because model2 and model3 are same other than using different technique i.e. step-wise regression. Model4 has accuracy of 92.8 percent which was achieved using glmulti function. It means that the prediction accuracy in model4 is 92.8%. 69 were truly identified as true positives while 60 were identified as true negative. Only 10 cases were identified as false positive and negative. If we take a look at F1 scores which are the harmonial mean of precision and recall i.e. how the model classified the results and it works based on precision and recall. Basically, there should be precision and recall values and in model 2 and model 3 there are no F1 values as there are no precision. It means model 2 and model 3 did not have precision and hence it did not identified anything positively which shows they are very bad models. It leaves us with Model 1 and Model 4. Model 1 has F1 value of 0.47 with precision is 1 and recall is 0.3. Model 4 has the highest Precision, recall and F1 values which support our previously discussed statements that model 4 is a best model out of the rest. The decision is based on overall RMSE, AIC, BIC, F1, Precision and Recall. Model 4 has recall value of 0.9231 which means that 92.31% of the times, it classified correctly. 
+
+
+We will use model4 to predict the test set. 
+
+## Predicting the test set
+
+
+```{r, message=FALSE,warning=FALSE, echo=FALSE}
+evaluation$target <- round(predict(model4@objects[[1]], evaluation),3)
+evaluation <- evaluation %>% mutate(target = if_else(evaluation$target < 0.5, 0,1))
+evaluation %>% head()
+```
+
+
+
+
+
+# Appendix
+
+```{r, message=FALSE, warning=FALSE, eval=FALSE}
+knitr::include_graphics('3.png')
+
+
+# Reading multiple libraries together with pacman's p_load function
+#Sys.setenv(JAVA_HOME= "C:\\Program Files\\Java\\jre1.8.0_261")
+pacman::p_load(naniar, tidyverse, knitr, kableExtra, skimr, Amelia, reshape2, stats, corrplot,caret, e1071, jtools, performance, glmulti,cvms, ROCR)
+
+training <- read.csv('C:/Users/hukha/Desktop/MS - Data Science/Data 621/HW3/crime-training-data_modified.csv')
+training2 <- training # for melting and boxploting
+evaluation <- read.csv('C:/Users/hukha/Desktop/MS - Data Science/Data 621/HW3/crime-evaluation-data_modified.csv')
+
+training %>% head() %>% kable() %>% kableExtra::kable_styling()
+
+# Converting into factor variables
+var <- c("chas","target")
+training[,var] <- lapply(training[,var], as.factor)
+evaluation$chas <- as.factor(evaluation$chas)
+
+Sys.setlocale("LC_CTYPE", "Chinese") # Don't remove this line otherwise histogram will not show up correctly
+skim(training)  %>% kable() %>% kable_styling(full_width=FALSE) # Using skimr package
+missmap(training, main="Missing Values") # using Amelia package
+colSums(is.na(training))
+
+# Boxplot to see distributions with target variable
+melt(training2, id.vars='target') %>% mutate(target = as.factor(target)) %>% 
+  ggplot(., aes(x=variable, y=value))+geom_boxplot(aes(fill=target))+facet_wrap(~variable, dir='h',scales='free')+ labs(title="BoxPlot - Predictors Data Distribution with Target Variable")
+
+# Correlation matrix among variables
+training2 %>% 
+  cor(., use = "complete.obs") %>%
+  corrplot(., method = "color", type = "upper", tl.col = "black", tl.cex=.8, diag = FALSE)
+
+# Correlation table 
+correlation <- training2 %>% 
+  cor(., use = "complete.obs") %>%
+  as.data.frame() %>%
+  rownames_to_column()%>%
+  gather(Variable, Correlation, -rowname) 
+
+correlation %>%
+  filter(Variable == "target") %>%
+     arrange(desc(Correlation)) %>%
+  kable() %>%
+  kable_styling(full_width = FALSE)
+
+# Density plot to check normality
+melt(training2, id.vars='target') %>% mutate(target = as.factor(target)) %>% 
+  ggplot(., aes(x=value))+geom_density(fill='gray')+facet_wrap(~variable, scales='free')+
+  labs(title="Density Plot for Normality and Skewness") + 
+  theme_classic()
+
+# Skewness and outliers
+sapply(training2, skewness, function(x) skewness(x))
+
+set.seed(1003)
+training_partition <- createDataPartition(training2$target, p=0.7, list = FALSE, times=1)
+train2 <- training2[training_partition, ]
+test2 <- training2[-training_partition, ]
+
+sapply(training2, skewness, function(x) skewness(x))
+
+train_log <- train2 # copy of basic model for log transformation
+test_log <- test2
+
+
+train_log$zn <- log10(train_log$zn + 1)
+test_log$zn <- log10(test_log$zn + 1)
+
+# Plot and check skewness
+sapply(train_log, skewness, function(x) skewness(x))
+ggplot(melt(train_log), aes(x=value))+geom_density()+facet_wrap(~variable, scales='free') + labs(title="Log Transformation")
+
+
+# Copy of train and test
+train_boxcox <- train2
+test_boxcox <- test2
+
+# Preprocessing
+preproc_value <- preProcess(train2[,-1] , c("BoxCox", "center", "scale"))
+
+# Transformation on both train and test datasets
+train_boxcox_transformed <- predict(preproc_value, train_boxcox)
+test_boxcox_transformed <- predict(preproc_value, test_boxcox)
+
+ggplot(melt(train_boxcox_transformed), aes(x=value))+geom_density()+facet_wrap(~variable, scales='free') + labs(title="BoxCox Transformation")
+sapply(train_boxcox_transformed, function(x) skewness(x))
+
+# creating model1
+model1 <- lm(target ~ nox + age+ rad+ medv, family= binomial, data= train_log)
+summ(model1)
+check_collinearity(model1) %>% kable(caption="Multicollinearity") %>% kable_styling(full_width = FALSE)
+
+model2 <- lm(target ~ nox + age + dis + rad +  medv, family= binomial, data= train_boxcox_transformed)
+summ(model2)
+check_collinearity(model2) %>% kable(caption="Multicollinearity") %>% kable_styling(full_width = FALSE)
+
+model3 <- step(model2)
+summ(model3)
+
+# Model4 using glmulti()
+model4 <- glmulti(target ~ ., data = train2, level = 1, method="h", crit = "aic", plotty = FALSE, fitfunction = "glm", family=binomial)
+
+summary(model4@objects[[1]]) 
+
+compare_performance(model1, model2, model3, rank = TRUE) %>% kable() %>% kable_styling()
+model_performance(model4@objects[[1]]) %>% kable() %>% kable_styling()
+
+test3 <- test2 # copy of test dataset 
+test3$target <- as.factor(test3$target)
+
+# Calculating confusion matrix for model1
+preds1 <- predict(model1, newdata = test3)
+preds1[preds1 > 0.05] = 1
+preds1[preds1 < 0.05] = 0
+preds1 <- as.factor(preds1)
+model1_cm <- confusionMatrix(preds1, test3$target,mode="everything")
+tidy1 <- tidy(model1_cm[[2]])
+model1_cm
+plot_confusion_matrix(tidy1, targets_col="Prediction", predictions_col = "Reference",counts_col = "n")
+
+
+
+# Calculating confusion matrix for model2
+preds2 <- predict(model2, newdata = test3)
+preds2[preds2 > 0.05] = 1
+preds2[preds2 < 0.05] = 0
+preds2 <- as.factor(preds2)
+model2_cm <- confusionMatrix(preds2, test3$target,mode="everything")
+tidy2 <- tidy(model2_cm[[2]])
+model2_cm
+plot_confusion_matrix(tidy2, targets_col="Prediction", predictions_col = "Reference",counts_col = "n")
+
+
+# Calculating confusion matrix for model3
+preds3 <- predict(model3, newdata = test3)
+preds3[preds3 > 0.05] = 1
+preds3[preds3 < 0.05] = 0
+preds3 <- as.factor(preds3)
+model3_cm <- confusionMatrix(preds3, test3$target,mode="everything")
+tidy3 <- tidy(model3_cm[[2]])
+model3_cm
+plot_confusion_matrix(tidy3, targets_col="Prediction", predictions_col = "Reference",counts_col = "n")
+
+
+# Calculating confusion matrix for model4
+preds4 <- predict(model4@objects[[1]], newdata = test3)
+preds4[preds4 > 0.05] = 1
+preds4[preds4 < 0.05] = 0
+preds4 <- as.factor(preds4)
+model4_cm <- confusionMatrix(preds4, test3$target,mode="everything")
+tidy4 <- tidy(model4_cm[[2]])
+model4_cm
+plot_confusion_matrix(tidy4, targets_col="Prediction", predictions_col = "Reference",counts_col = "n")
+
+evaluation$target <- round(predict(model4@objects[[1]], evaluation),3)
+evaluation <- evaluation %>% mutate(target = if_else(evaluation$target < 0.5, 0,1))
+evaluation %>% kable(caption="Prediction based on Model4") %>% kable_styling(full_width = FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
