@@ -1,0 +1,76 @@
+---
+title: |
+    | Data 621 Blog 01 
+    | Visualization of time series data
+author: "Farhana Zahir"
+date: "11/23/2020"
+output:
+  html_document:
+    code_folding: 'show'
+    df_print: paged
+  pdf_document:
+    df_print: tibble
+---
+
+**Overview**
+
+I work in the equity markets and have to work with a lot of time series data. This blog will focus on how to get prices of a specific stock, Apple, and create some visualizations to understand the trends in the closing price. We will be extracting the prices from yahoo using the quantmod package and then create some Technical charts that come with the package.
+
+**Load Libraries**
+
+```{r message=F}
+library(quantmod)
+library(tidyverse)
+```
+
+**Extracting the data**
+
+We will be extracting data starting 01 Jan 2020 till date. First let us have a look at all the variables we can extract.We see that we get data in the OHLC(Open, High, Low. close) format. We also get the volume for the day and the Adjusted close price.
+
+The adjusted closing price amends a stock's closing price to reflect that stock's value after accounting for any corporate actions. The closing price is the raw price, which is just the cash value of the last transacted price before the market closes.The adjusted closing price factors in corporate actions, such as stock splits, dividends, and rights offerings.
+
+For this analysis, we will be working with the Adjusted close price.
+
+```{r}
+aapl<-getSymbols.yahoo('AAPL', from='2020-01-01', to='2020-11-22',auto.assign=F)
+head(aapl)
+```
+We cal also extract only the Adjusted close, which is column 6. This might not seem important for a single ticker, but space planning and management is of utmost importance when we have to pay for cloud storage.
+
+The data is stored in an xts object.An xts object is a matrix of observations combined with an index of corresponding dates and times.
+
+```{r}
+aapl1<- getSymbols.yahoo("AAPL", from='2020-01-01', auto.assign = F)[,6]
+class(aapl)
+```
+**Visualizations**
+
+Quantmod has several functions covering a range of visualizations. Let us plot the closing prices first. In the below chart, we have used green to plot days when the stock went up, and red to plot days when the stock went down. The volume is also plotted using the same colors. 
+
+```{r}
+chartSeries(aapl, up.col='green', dn.col='red', theme=chartTheme("white"))
+```
+
+Next, we can add technical indicators to get a better understanding of the movements in the stock price. Here we have added volume, and two technical indicators, Bollinger bands and MACD. Bollinger Bands are envelopes plotted at a standard deviation level above and below a simple moving average of the price. Moving Average Convergence Divergence (MACD) is a trend-following momentum indicator that shows the relationship between two moving averages of a security's price. The MACD is calculated by subtracting the 26-period Exponential Moving Average (EMA) from the 12-period EMA.
+
+```{r}
+aapl %>%
+  chartSeries(TA='addVo();
+                 addBBands(draw="p");
+                 addMACD()', 
+                 theme="white" ) 
+```
+You can also adjust the frequency from daily to weekly, monthly, quarterly or annual.
+
+```{r}
+barChart(to.monthly(aapl),up.col='green',dn.col='red', theme=chartTheme("white"))
+```
+
+**Conclusion**
+
+Quantmod is an amazing package to download stock prices and has great charting features especially created for stock market analysts and traders. For a full list of technical indicators available, you may visit 
+
+https://www.quantmod.com/examples/charting/#technicals.
+
+
+
