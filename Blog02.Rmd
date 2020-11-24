@@ -1,0 +1,129 @@
+---
+title: |
+    | Data 621 Blog 02 
+    | Simple Linear Regression of stock returns
+author: "Farhana Zahir"
+date: "11/24/2020"
+output:
+  pdf_document:
+    df_print: tibble
+  html_document:
+    code_folding: 'show'
+    df_print: paged
+---
+
+**Overview**
+
+This blog focuses on running a regression between two technology stocks, Apple and Amazon. We will be using the quantmod package to calculate the stock returns, on a daily and monthly basis. The two datasets will then be used to run a regression to see if we can use one stock's returns to predict the returns of the other one. We then use three other technology stocks and run a multiple linear regression to see if we can up up with a better fit.
+
+**Load Libraries**
+
+```{r message=F}
+library(quantmod)
+library(tidyverse)
+library(corrplot)
+```
+
+**Extracting the data**
+
+We wil be using prices starting 01 Jan 2015 for this purpose. First we extract the price data for both the tickers
+
+```{r}
+aapl<- getSymbols.yahoo("AAPL", from='2015-01-01', auto.assign = F)[,6]
+amzn<- getSymbols.yahoo("AMZN", from='2015-01-01', auto.assign = F)[,6]
+```
+
+**Calculate returns**
+
+Next we will calculate the daily and monthly returns using the quantmod package.
+
+```{r}
+aapl_daily<-periodReturn(aapl, period='daily', type='log')
+aapl_monthly<-periodReturn(aapl, period='monthly', type='log')
+amzn_daily<-periodReturn(amzn, period='daily', type='log')
+amzn_monthly<-periodReturn(amzn, period='monthly', type='log')
+```
+
+Let us have a look at the correlations first. We have a 56% correlation between the returns of the two stocks.
+
+```{r}
+print('Correlation daily returns')
+cor(aapl_daily, amzn_daily)
+```
+
+```{r}
+print('Correlation monthly returns')
+cor(aapl_monthly, amzn_monthly)
+```
+
+We will now plot the returns for these stocks
+
+```{r}
+par(mfrow=c(1,2))
+chartSeries(aapl_daily,theme=chartTheme("white"))
+chartSeries(amzn_daily,theme=chartTheme("white"))
+```
+
+
+**Simple Linear Regression**
+
+We will now run a linear regression on the two returns, First we combine the data into one file and change the headers
+
+```{r}
+data<-cbind(aapl_daily, amzn_daily)
+names(data)<-c("AAPL", "AMZN")
+```
+
+We plot a scatter plot to look at the patterns. As expected we see a lot of the daily returns values in the range -2.5% to 2.5%
+
+```{r}
+scatter.smooth(x=data$AAPL, y=data$AMZN, main="AAPL ~ AMZN")
+```
+
+We now fit the linear model
+
+```{r}
+linearMod <- lm(AAPL ~ AMZN, data=data)  # build linear regression model on full data
+summary(linearMod)
+```
+We see a low Rsquare of 31% even though we started with a 56% correlation.
+
+**Multiple Regression**
+
+We will now bring in three other technology stocks and do the same to see if we can come up with a better fit, Facebook, Goodle and Netflix. Together these 5 stocks are commonly referred to as FAANG.
+
+```{r}
+fb<- getSymbols.yahoo("FB", from='2015-01-01', auto.assign = F)[,6]
+goog<-aapl<- getSymbols.yahoo("GOOG", from='2015-01-01', auto.assign = F)[,6]
+nflx<-aapl<- getSymbols.yahoo("NFLX", from='2015-01-01', auto.assign = F)[,6]
+fb_daily<-periodReturn(fb, period='daily', type='log')
+goog_daily<-periodReturn(goog, period='daily', type='log')
+nflx_daily<-periodReturn(nflx, period='daily', type='log')
+```
+
+```{r}
+data<-cbind(data, fb_daily, goog_daily, nflx_daily)
+names(data)<-c("AAPL", "AMZN", "FB", "GOOG", "NFLX")
+```
+
+Let us run the regression now
+
+```{r}
+MultMod <- lm(AAPL ~ AMZN+FB+GOOG+NFLX, data=data)  # build linear regression model on full data
+summary(MultMod)
+```
+
+We find that even though the p value is low, all these four technology stocks return an adjusted Rsquare of only 45%. The rest of the changes in returns must be due to company specific opportunities/factors.
+
+Here is a corrplot for all the returns.
+
+```{r}
+data %>% 
+  cor(., use = "complete.obs") %>%
+  corrplot(., method = "number", type = "upper", tl.col = "black", tl.cex=.8, diag = FALSE)
+```
+
+
+**Conclusion**
+
+It does not look like we can predict returns of Apple stocks with the four other technology tickers we have used here. Analysts better do their company specific research to stock pick for their portfolios.
