@@ -1,0 +1,187 @@
+---
+title: |
+    | Data 621 Blog 03 
+    | Imputation using MICE package
+author: "Farhana Zahir"
+date: "11/26/2020"
+output:
+  pdf_document:
+    df_print: tibble
+  html_document:
+    code_folding: 'show'
+    df_print: paged
+---
+
+**Overview**
+
+Missing values can be a big obstacle in the way of model fitting and predictive analytics. The choice of method to impute missing values,largely influences the model’s predictive ability. In most statistical analysis methods,listwise deletion is the default method used to impute missing values. But, it not as good since it leads to information loss.
+
+R has several packages to impute missing values, including MICE, Amelia, missForest, Hmisc and mi. This blog tests the different methods used by MICE to impute missing values and then comapres with the original dataset to test which one goes closest to the shape of the proginal distribution.
+
+MICE (Multivariate Imputation via Chained Equations) is one of the commonly used package by R users. Creating multiple imputations as compared to a single imputation (such as mean) takes care of uncertainty in missing values.MICE assumes that the missing data are Missing at Random (MAR), which means that the probability that a value is missing depends only on observed value and can be predicted using them. It imputes data on a variable by variable basis by specifying an imputation model per variable.
+
+**Load Libraries**
+
+```{r message=F}
+library(tidyverse)
+library(mice)
+library(missForest)
+library(VIM)
+library(kableExtra)
+```
+
+**Read in data and produce missing at random**
+
+We will use the iris dataset for this analysis. The dataset has 150 observations for 5 variables. We remove the categorical variable and focus our analysis on the continuous variables.
+
+```{r}
+data<-iris
+data <- subset(data, select = -c(Species))
+```
+
+Next we produce 10% missing values at random using the prodNA function from the missForest package.
+
+```{r}
+iris.mis <- prodNA(data, noNA = 0.1)
+```
+
+We will focus on the continuous variables and remove the categorical variable Species. Let us have a look at the missingness.There are 65% values in the data set with no missing value. There are 10% missing values in Petal.Length, 9.5% missing values in Petal.Width and so on.
+
+```{r}
+mice_plot <- aggr(iris.mis, col=c('navyblue','yellow'),
+                    numbers=TRUE, sortVars=TRUE,
+                    labels=names(iris.mis), cex.axis=.7,
+                    gap=3, ylab=c("Missing data","Pattern"))
+```
+
+**Impute missing values**
+
+Let us impute the missing values now. We will use a seed to keep the results unaltered.
+
+PMM (Predicted Mean Matching)
+
+```{r, message=F}
+Data_pmm <- mice(iris.mis, method = 'pmm', seed = 5000)
+pmm<- complete(Data_pmm)
+```
+CART(Classification and regression trees)
+
+
+```{r, message=F}
+Data_cart<- mice(iris.mis, method = 'cart', seed = 5001)
+cart<-complete(Data_cart)
+```
+
+Midastouch(Weighted predictive mean matching)
+
+
+```{r, message=F}
+Data_midastouch <- mice(iris.mis,  method = 'midastouch', seed = 5002)
+midastouch<-complete(Data_midastouch)
+```
+
+RF(Random Forest Imputation)
+
+
+```{r, message=F}
+Data_rf <- mice(iris.mis, method = 'rf', seed = 5003)
+rf<-complete(Data_rf)
+```
+
+Sample (Random sample from observed values)
+
+
+```{r, message=F}
+Data_sample <- mice(iris.mis, method = 'sample', seed = 5004)
+sample<-complete(Data_sample)
+```
+Mean (Unconditional mean imputation)
+
+
+```{r, message=F}
+Data_mean <- mice(iris.mis, method = 'mean', seed = 5005)
+mean<-complete(Data_mean)
+```
+
+**Compare the methods**
+
+Here we compare the summary of the methods with the original distribution.
+
+*Sepal.length*
+
+We see that pmm and rf methods return distributions closest to original.
+
+```{r}
+sepal_length<-as.data.frame(cbind(data$Sepal.Length, pmm$Sepal.Length, cart$Sepal.Length,                          midastouch$Sepal.Length, rf$Sepal.Length, sample$Sepal.Length, 
+                      mean$Sepal.Length))
+names(sepal_length)<-c('original', 'pmm', 'cart', 'midastouch', 'rf', 'sample', 'mean')
+```
+```{r}
+boxplot(sepal_length, main="Comparison of different imputation methods on sepal.length")
+```
+*Sepal.width*
+
+Except for midastouch, all the other methods have a returned an almost similar distribution.
+
+```{r}
+sepal_width<-as.data.frame(cbind(data$Sepal.Width, pmm$Sepal.Width, cart$Sepal.Width,      
+                    midastouch$Sepal.Width, rf$Sepal.Width, sample$Sepal.Width, 
+                    mean$Sepal.Width))
+
+names(sepal_width) <- c('original', 'pmm', 'cart', 'midastouch', 'rf', 'sample', 'mean')
+
+```
+
+```{r}
+boxplot(sepal_width, main="Comparison of different imputation methods on sepal.width")
+```
+
+*Petal.length*
+
+Cart is the winner here.
+
+```{r}
+petal_length<-as.data.frame(cbind(data$Petal.Length, pmm$Petal.Length, cart$Petal.Length,      
+                    midastouch$Petal.Length, rf$Petal.Length, sample$Petal.Length, 
+                    mean$Petal.Length))
+
+names(petal_length) <- c('original', 'pmm', 'cart', 'midastouch', 'rf', 'sample', 'mean')
+
+```
+
+```{r}
+boxplot(petal_length, main="Comparison of different imputation methods on petal_length")
+```
+
+
+*Petal.width*
+
+Except for mean, all the other methods have a returned an almost similar distribution.
+
+```{r}
+petal_width<-as.data.frame(cbind(data$Petal.Width, pmm$Petal.Width, cart$Petal.Width,      
+                    midastouch$Petal.Width, rf$Petal.Width, sample$Petal.Width, 
+                    mean$Petal.Width))
+
+names(petal_width) <- c('original', 'pmm', 'cart', 'midastouch', 'rf', 'sample', 'mean')
+
+```
+
+```{r}
+boxplot(petal_width, main="Comparison of different imputation methods on petal_width")
+```
+
+**Conclusion**
+
+We have had different results for different variables when using different imputation methods using the MICE package. PMM seems to have done a better job than most other methods with every variable. Here is a density plot for the distributions, decide for yourself!
+
+```{r}
+par(mfrow=c(3,3))
+plot(density(data$Sepal.Length), main='Original')
+plot(density(pmm$Sepal.Length),  main='pmm')
+plot(density(cart$Sepal.Length),  main='cart')
+plot(density(midastouch$Sepal.Length),  main='midastouch')
+plot(density(rf$Sepal.Length),  main='rf')
+plot(density(sample$Sepal.Length),  main='sample')
+plot(density(mean$Sepal.Length),  main='mean')
+```
