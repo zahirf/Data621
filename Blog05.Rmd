@@ -1,0 +1,56 @@
+---
+title: |
+    | Data 621 Blog 05 
+    | Comparing regression models using stargazer
+author: "Farhana Zahir"
+date: "11/27/2020"
+output:
+  pdf_document:
+    df_print: tibble
+  html_document:
+    code_folding: 'show'
+    df_print: paged
+---
+
+One of the most useful packages I have come across this semester is the stargazer package. It provides a way to create publication quality tables, and a way for researchers to avoid creating new tables each time they tweak their datasets. This package saves users time, and has been welcomed by the R community. It outputs tables in multiple formats; from .txt to LaTex code as well as .html. This tutorial will go through the .txt and .html formats and provide the basic understanding needed to create Summary Statistics Tables and Regression Tables.
+
+This blog will demonstrate some of the applications of this wonderful package
+
+```{r, message=F}
+library(stargazer)
+```
+
+We will be using the iris data to show the following features of the package.
+
+**Summary Statistics**
+
+This is similar to the base r function but shows the statistics in a table format.
+
+```{r}
+stargazer(iris, type='text', title=' Iris : Summary Statistics', out='table1.txt')
+```
+
+You can also flip the table
+
+```{r}
+stargazer(iris, type='text', title=' Iris : Summary Statistics', out='table1.txt', flip=TRUE)
+```
+
+**Regression**
+
+I think the most important application of this package is being able to display regression statistics to compare the results. To demonstrate this, I will run three regression models first.
+
+```{r}
+data<-iris
+m1<-lm(Sepal.Length~., data)
+m2<-lm(Sepal.Length ~ Sepal.Width, data)
+m3<-lm(Sepal.Length~ Sepal.Width + Petal.Length, data)
+```
+
+Now let us compare the outputs
+
+```{r, message=F, warning=F}
+stargazer(m1, m2, m3, type='text', title='Regression results', out='table2.text')
+```
+
+We can easily compare the Rsquare, errors, p values, etc side by side to compare which model fits our data best.
