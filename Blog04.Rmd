@@ -1,0 +1,111 @@
+---
+title: |
+    | Data 621 Blog 04 
+    | Bibliography
+author: "Farhana Zahir"
+date: "11/27/2020"
+output:
+  pdf_document:
+    df_print: tibble
+  html_document:
+    code_folding: 'show'
+    df_print: paged
+bibliography: blog.bib
+---
+
+One of the required needs of any research paper is citing the sources. There are several formats for academic papers like APA and IEEE. This blog focuses on how to add a bibliography and cite your sources in a markdown document.
+
+First, you need to create a .bib file. This is a text file in the BibTeX format (http://www.bibtex.org). This is similar to and used in conjunction with LaTeX. This file will contain all your references. Here is a sample.
+
+
+```{Bibliography, eval=FALSE}
+@book{faraway,
+  address   = {New York, NY},
+  title     = {Linear Models with R},
+  isbn      = {978-0-387-98140-6 978-0-387-98141-3},
+  language  = {en},
+  publisher = {Chapman and Hall/CRC},
+  author    = {Faraway, Julian},
+  year      = {2014},
+  edition   = {2nd Edition}
+}
+@ARTICLE{Meyer2000,  
+  AUTHOR="Bernd Meyer",  
+  TITLE="A constraint-based framework for diagrammatic reasoning",  
+  JOURNAL="Applied Artificial Intelligence",  
+  VOLUME= "14",  
+  ISSUE = "4",  
+  PAGES= "327--344",  
+  YEAR=2000  
+}
+@article{patashnik,
+  Title   = {BibTeXing},
+  Author  = {Patashnik, Oren},
+  Year    = {02/08/1988},
+  Url     = {http://mirrors.rit.edu/CTAN/biblio/bibtex/base/btxdoc.pdf}
+}
+@article{dickimaw,
+  Title   = {Standard Fields},
+  Url     = {https://www.dickimaw-books.com/latex/thesis/html/bibformat.html}
+}
+
+```
+I have created the .bib file using notepad and saved it in the same folder as my rmd file.
+
+In order to cite within the document, all I have to is use '@' sign followed by the reference type. e.g. "[@faraway]".
+
+**Here is an example:**
+
+Our Data 621 course is heavily based on the Linear model textbook by Faraway [@faraway]
+
+This is a great article on Applied Artificial Intelligence [@Meyer2000]
+
+For further examples refer to [@patashnik]
+
+**More on citation**
+
+Here are some standard bibtex fields [@dickimaw]
+
+
+address:	Publisher/Institution's address
+
+author:	Author names
+
+booktitle:	Title of book where only a part of the book is being cited
+
+chapter:	Chapter or section number
+
+edition:	The edition of the book
+
+howpublished:	How a non-standard work was published
+
+institution: The institute sponsoring the work
+
+journal:	The name of the journal
+
+month:	The month the work was published
+
+note:	Any additional information
+
+number:	The number of the journal, technical report etc
+
+organization:	Organization sponsoring conference or manual
+
+pages:	Page number or page range
+
+publisher:	Publisher's name
+
+school	Academic institution where thesis was written
+
+series:	Name of a series
+
+title:	The title of the work
+
+type:	The type of technical report
+
+volume:	The volume number.
+
+
+
+### Reference
+
