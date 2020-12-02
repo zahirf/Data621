@@ -1,0 +1,520 @@
+---
+title: "Data 621 - HW5"
+author: Farhana Zahir, Vijaya Cherukuri, Scott Reed, Shovon Biswas, Habib Khan, Alain
+  Kuiete Tchoupou
+date: "11/16/2020"
+output:
+  pdf_document:
+    df_print: tibble
+    toc: true
+  html_document:
+    df_print: paged
+---
+\newpage
+
+# Whining about Wine Sales
+
+## Overview
+
+In this report we attempt to build a model for wine sales as would be predicted by a number of factors about the wine and its packaging. In the end a zero inflated poisson model seems to be the best model. Particularly important to sales variables seem to consist of Label Appeal, Acid Index, Stars and to a lesser extent Alcohol. 
+
+```{r eval=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+library(dplyr)
+library(tidyverse)
+library(kableExtra)
+library(visdat)
+library(DT)
+library(psych)
+library(corrplot)
+library(MASS)
+library(matrixStats)
+library(pander)
+library(pacman)
+library(bestglm)
+library(glmnet)
+library(AICcmodavg)
+library(RcmdrMisc)
+library(pscl)
+library(caret)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(mice)
+p_load(Hmisc, xtable, knitr, scales, magrittr, tidyverse, stringr, e1071, corrplot, knitcitations, bibtex, missForest, abc,
+       foreach, doParallel, stargazer, forecast, matrixStats, glmulti, leaps, data.table, highlight, car, Amelia, caret)
+```
+## Data Exploration
+
+Data was provided already split into a training dataset of 12,795 observations, and an evaluation dataset of 16,129 observations. There was one response variable, Number of Cases purchased, and 14 predictors. 
+
+Below is a short description of the variables of interest in the data set:
+
+
+| Variable Name | Description | Import |
+|---------------|-------------|--------|
+|Index          |Identification|Not used       |
+|Target         |Number of cases purchased| Response variable |
+|---------------|--------------|---------|
+|AcidIndex    | Proprietary total acidity measure  |       |
+|Alcohol    |Alcohol content | |
+|Chlorides    | Chloride content| |
+|Density | Density of Wine| |
+|FixedAcidity| Fixed Acidity |
+|FreeSulfurDioxide| Sulfur Dioxide Content||
+|Label Appeal| Marketing Score indicating appeal of label | Expected positive|
+|ResidualSugar| Residual Sugar ||
+|STARS| Wine rating by experts |Positive|
+|Sulphates|Sulfate content||
+|TotalSulfurDioxide| Total Sulfur Dioxide||
+|VolatileAcidity | Volatile Acid content||
+|pH| pH of wine||
+
+On a first inspection, it was obvious that many variables had at least some missing data. 
+
+```{r Import Dataset, message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
+data_train <- read_csv("https://raw.githubusercontent.com/vijay564/Data621/main/wine-training-data.csv") %>%
+  dplyr::select(TARGET, everything())
+data_eval <- read_csv('https://raw.githubusercontent.com/vijay564/Data621/main/wine-evaluation-data.csv')
+```
+
+A sample from the training dataset is provided below:
+
+### Training Dataset
+```{r Training Dataset, message=FALSE, warning=FALSE, echo=FALSE}
+pander(head(data_train))
+```
+
+### Check Data types and Missing values
+
+The datasets both have missing values. There are 3 categorical variables (`LabelAppeal`,`AcidIndex`,`STARS`), 11 continuous variables and the target variable is categorical.
+
+```{r, missing values and data type check, fig.cap= "Missing Values and Data Type Check", message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+library(gridExtra)
+p_t_dt <- vis_dat(data_train)
+p_t_m <- vis_miss(data_train)
+p_e_dt <- vis_dat(data_eval)
+p_e_m <- vis_miss(data_eval)
+grid.arrange(p_t_m,p_e_m, p_t_dt,p_e_dt,ncol = 2, 
+             widths = c(1,1),
+             heights = c(1.5,1),
+             top = 'Missing Values and Data Type Check')
+Non_NAs <- sapply(data_train, function(y) sum(length(which(!is.na(y)))))
+NAs <- sapply(data_train, function(y) sum(length(which(is.na(y)))))
+NA_Percent <- NAs / (NAs + Non_NAs)
+NA_SUMMARY <- data.frame(Non_NAs,NAs,NA_Percent)
+Amelia::missmap(data_train, main = "Missing vs Observed in Traning Data")
+pander(NA_SUMMARY)
+```
+
+### Data Statistics Summary
+
+A binary logistic regression model is built using the `training set`, therefore the `training set` is used for the following data exploration.
+
+The data types in the raw dataset are all 'doubles', however the counter `INDEX` and the response variable `target` are categorical. 
+
+```{r summary, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+library(dplyr)
+data_t_mod <- data_train %>% 
+  dplyr::select(-(INDEX)) %>% 
+  #mutate(TARGET = as.factor(TARGET)) %>%
+  dplyr::select(TARGET, everything())
+```
+
+The statistics of all variables are listed below:
+```{r statistics summary, message=FALSE, warning=FALSE, echo=FALSE}
+pander(summary(data_t_mod))
+```
+
+#### The statistics of TARGET Variable.
+
+TARGET: Number of Cases Purchased as Actual
+
+```{r, eval=TRUE, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+options(width=100)
+round(with(data_train, c(summary(TARGET), StdD=sd(TARGET), Skew=skewness(TARGET), Kurt=kurtosis(TARGET))),2)
+```
+
+# DATA EXPLORATION
+
+## Attributes
+
+FixedAcidity: This variable tells us about the FixedAcidity of wine.
+
+VolatileAcidity: This variable tells us about the Volatile Acidity content of Wine.
+
+CitricAcid: This variable tells us about the Citric Acid Content of wine.
+
+ResidualSugar: This variable tells us about the Residual Sugar of wine.
+
+Chlorides: This variable tells us about the Chloride content of wine.
+
+FreeSulfurDioxide : This variable tells us about the Sulfur Dioxide content of wine.
+
+TotalSulfurDioxide : This variable tells us about the Total Sulfur Dioxide of Wine.
+
+Density: This variable tells us about the Density of wine.
+
+Sulphates: This variable tells us about the Sulphates content of wine.
+
+Alcohol: This variable tells us about the Alcohol content.
+
+LabelAppeal: Marketing Score indicating the appeal of label design for consumers. High numbers suggest customers like the label design.
+
+AcidIndex: Proprietary method of testing total acidity of wine by using a weighted average.
+
+STARS: Wine rating by a team of experts. 4 Stars = Excellent, 1 Star = Poor. A high number of stars suggests high sales.
+
+## Outliers
+
+```{r Box Plot on training set, fig.cap = "Boxplot: Scaled Training Set", message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+data_t_mod %>%
+  scale() %>%
+  as.data.frame() %>%
+  stack() %>%
+  ggplot(aes(x = ind, y = values)) +
+  geom_boxplot(fill = 'deeppink4') +
+  labs(title = 'Boxplot: Scaled Training Set',
+       x = 'Variables',
+       y = 'Normalized_Values')+
+  theme(panel.background = element_rect(fill = 'grey'),axis.text.x=element_text(size=10, angle=90))  
+```
+
+The box plot shows that outliers exist in variables `FixedAcidity`, `VolatileAcidity`, `CitricAcid`, `ResidualSugar`, `Chlorides`, `FreeSulfurDioxide`, `TotalSulfurDioxide`, `Density`, `pH`, `Sulphates`, `Alcohol`, `LabelAppeal` and`AcidIndex`. 
+
+## Univariate Analysis
+
+### Response Variable
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+data_t_mod %>%
+  group_by(TARGET) %>%
+  tally() %>%
+  ggplot(., aes(x = factor(TARGET), y = n, fill = factor(TARGET))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_brewer(palette = "Set1") + 
+  theme(legend.position = "none") +
+  labs(x="Number of Wine Cases Purchased (TARGET)",y = "Count")
+```
+Upon examining the target variable we immediately see a normal distribution save for the large number of unsold cases. 
+
+
+## Correlation Plot
+
+The correlation plot below shows how variables in the dataset are related to each other. 
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+corrplot(as.matrix(cor(data_train, use = "pairwise.complete")),method = "circle")
+```
+Here we see relatively little in strong correlations with almost all of the chemistry having minimal impact. Interestingly there is a some relation between star rating and label appeal. As one would expect there is a relationship with Acid index and fixed acidity. 
+
+
+## Density Plot
+
+Based on the below plots we can observe that `AcidIndex` is right skewed; `AcidIndex`, `STARS`, `LabelAppeal` and `TARGET` have multi-modal distribution (as expected because they are categorical). While most others seem to be normally distributed.
+
+```{r, eval=TRUE, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+data_t_mod %>%
+  select_if(is.numeric) %>%
+  keep(is.numeric) %>% 
+  gather() %>%  
+  ggplot(aes(x=value)) + 
+    facet_wrap(~key, scales = "free") + 
+    geom_density()  
+```
+
+
+## Summarized Data Dictionary
+
+As a summary of the data exploration process, a data dictionary is presented below:
+
+```{r data dictionary, fig.cap = "Data Dictionary", message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+data_stat <- data_train %>% 
+  dplyr::select(-TARGET,-INDEX) %>%
+  gather() %>%
+  group_by(key) %>%
+  summarise(Mean = mean(value),
+            Median = median(value),
+            Max = max(value),
+            Min = min(value),
+            SD = sd(value))
+data_cor <- data_train %>%
+  cor() %>%
+  as.data.frame() %>% 
+  dplyr::select(TARGET) %>% 
+  rownames_to_column('Variable') %>%
+  dplyr::rename(Correlation_vs_Response = TARGET)
+data_train %>% 
+  gather() %>%
+  dplyr::select(key) %>%
+  unique() %>%
+  dplyr::rename(Variable = key) %>%
+  mutate(
+         Missing_Value = 'No') %>%
+  left_join(data_stat, by = c('Variable'='key')) %>%
+  left_join(data_cor, by = 'Variable') %>%
+  mutate_if(is.numeric,round,2) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),full_width = F)
+```
+
+# DATA PREPARATION
+
+In the data preparation we will split data into training and test dataset.
+
+MICE package (Multivariate Imputation by Chained Equations)implements a method to deal with missing data. The package creates multiple imputations (replacement values) for multivariate missing data. helps in inspecting, imputing, diagnose, analyze, pool the result, and generate simulated incomplete data
+
+```{r mice, eval=TRUE, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+require(mice)
+set.seed(999) 
+sampl = caTools::sample.split(data_t_mod$TARGET, SplitRatio = .80)
+wine_train1 <- subset(data_t_mod, sampl == TRUE)
+wine_test1 <- subset(data_t_mod, sampl == FALSE)
+wine_train2 <-  as.data.frame(tidyr::complete(mice(wine_train1, m=1, maxit = 5, seed = 42)))
+wine_test2 <- as.data.frame(tidyr::complete(mice(wine_test1, m=1, maxit = 5, seed = 42)))
+```
+
+'AcidIndex' and 'TARGET' have low correlation between them. We will apply a log transformation to it even if it doesn't seem likely to provide a large model improvement. 
+
+```{r logAcid, eval=TRUE, message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
+wine_train2$AcidIndex <- log(wine_train2$AcidIndex)
+wine_test2$AcidIndex <- log(wine_test2$AcidIndex)
+```
+
+# BUILD MODELS
+
+## Poisson Model
+
+### Model 1: Poisson Model without imputations
+
+```{r Model1, eval=TRUE, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+model1 = glm(TARGET ~  ., data=wine_train1, family=poisson)
+pander(summary(model1))
+plot(model1)
+#grid.arrange(hist, qq_plot, box_plot, box_TARGET, ncol=2)
+```
+Stars and Label appeal seem to have a strong positive impact on sales, which is to be expected (and will be seen in all models). On the acid front the acidindex value seems a better predictor than the acid components. 
+### Model 2: Poisson Model  without imputations and only significant variables
+
+```{r Model2, eval=TRUE, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+model2 = glm(TARGET ~  .-FixedAcidity-CitricAcid-ResidualSugar-Chlorides-FreeSulfurDioxide-TotalSulfurDioxide-Density-pH-Sulphates-Alcohol, data=wine_train1, family=poisson)
+pander(summary(model2))
+plot(model2)
+```
+Reducing the variables in the model doesn't have a major impact on the model, and will probably improve its performance in actual fact. 
+
+### Model 3: Poisson Model  with imputations
+
+```{r Model3, eval=TRUE, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+model3 = glm(TARGET ~  ., data=wine_train2, family=poisson)
+pander(summary(model3))
+plot(model3)
+```
+With imputations a number of variables become significant, including acidity, and Sulfur/sulphate counts. This makes some intuitive sense as those would affect the taste of the wine. Interestingly, the coefficient is positive on the sulfur dioxide. One would rarely expect sulfur dioxide (the smell of burnt matches) to be an improvement for wine. 
+
+### Model 4: Poisson Model with imputations and only significant variables
+
+```{r Model4, eval=TRUE, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+model4 = glm(TARGET ~  .-FixedAcidity-CitricAcid-ResidualSugar-Density-Alcohol, data=wine_train2, family=poisson)
+pander(summary(model4))
+plot(model4)
+```
+Using just the significant variables we do not get much of an improvement in AIC, but the model seems to lose little. 
+
+## Negative Binomial Model
+
+### Model 5 : Negative Binomial Model without imputations
+
+```{r Model5, eval=TRUE, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+model5 <- glm.nb(TARGET ~ ., data = wine_train1)
+summary(model5)
+plot(model5)
+```
+AIC is similar to Poisson without imputations, as are some of the coefficients. 
+### Model 6 : Negative Binomial Model without imputations and only significant variables
+
+```{r Model6, eval=TRUE, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+model6 <- glm.nb(TARGET ~ .-FixedAcidity-CitricAcid-ResidualSugar-Chlorides-FreeSulfurDioxide-TotalSulfurDioxide-Density-pH-Sulphates-Alcohol, data = wine_train1)
+summary(model6)
+plot(model6)
+```
+Removing non significant variables doesn't seem to affect the model's accuracy much. 
+### Model 7 : Negative Binomial Model with imputations
+
+```{r Model7, eval=TRUE, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+model7 <- glm.nb(TARGET ~ ., data = wine_train2)
+summary(model7)
+plot(model7)
+```
+With imputations we find surprisingly similar results to a the Poisson model with imputations.
+### Model 8 : Negative Binomial Model with imputations and only significant variables
+
+```{r Model8, eval=TRUE, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+model8 <- glm.nb(TARGET ~ .-FixedAcidity-CitricAcid-ResidualSugar-Density-Alcohol, data = wine_train2)
+pander(summary(model8))
+plot(model8)
+```
+
+## Linear Model
+
+### Model 9 : Linear Model with imputations
+
+Use imputed training data on Linear regression model
+
+```{r Model9, eval=TRUE, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+model9 <- lm(TARGET ~ ., data = wine_train2)
+pander(summary(model9))
+plot(model9)
+```
+A plain linear regression model is a surprisingly decent performer when coupled with imputations.
+
+### Model 10 : Linear Model with imputations and only significant variables.
+
+We got `FixedAcidity`, `CitricAcid` and `ResidualSugar` as significant variables and use same variables on Linear regression model with imputed training data.
+
+```{r Model10, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+model10 <- lm(TARGET ~ .-FixedAcidity-CitricAcid-ResidualSugar, data = wine_train2)
+pander(summary(model10))
+plot(model10)
+```
+Again, removing less significant variables has little impact on the model, and is recommended to reduce overfitting.
+
+## Ordinal Logistic Regression
+
+Since Ordinal logistic regression uses ordered factors we might find this as one of the top model based on our use cases.
+
+```{r Model11, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+polrDF <- wine_train2
+polrDF$TARGET <- as.factor(polrDF$TARGET)
+model11 <- polr(TARGET ~ ., data = polrDF, Hess=TRUE)
+pander(summary(model11))
+```
+
+## Zero inflation 
+
+Zero-inflated poisson regression is used to model count data that has an excess of zero counts. Further, theory suggests that the excess zeros are generated by a separate process from the count values and that the excess zeros can be modeled independently. In Data exploration we saw many zero values, considering this we might get this as one of our best model.
+
+```{r Model12, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+model12 <- zeroinfl(TARGET ~ . | STARS, data = wine_train2, dist = 'negbin')
+summary(model12)
+scatterPreds <- predict(model12, wine_train2)
+qplot(wine_train2$TARGET, scatterPreds, main = 'Predicted vs Actual') + ggthemes::theme_tufte()
+residPlot <- scatterPreds - wine_train2$TARGET
+qplot(wine_train2$TARGET, residPlot, main = 'Residuals') + ggthemes::theme_tufte()
+```
+Interestingly Sulfur Dioxides and Sulphates are not significant in this model, while Alcohol is. 
+
+# SELECT MODELS
+
+## Compare Models based on MSE/AIC
+
+```{r Compare, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+aic1 <- model1$aic
+aic2 <- model2$aic
+aic3 <- model3$aic
+aic4 <- model4$aic
+aic5 <- model5$aic
+aic6 <- model6$aic
+aic7 <- model7$aic
+aic8 <- model8$aic
+aic9 <- model9$aic
+aic10 <- model10$aic
+aic11 <- model11$aic
+aic12 <- model12$aic
+mse1 <- mean((wine_train2$TARGET - predict(model1))^2)
+mse2 <- mean((wine_train2$TARGET - predict(model2))^2)
+mse3 <- mean((wine_train2$TARGET - predict(model3))^2)
+mse4 <- mean((wine_train2$TARGET - predict(model4))^2)
+mse5 <- mean((wine_train2$TARGET - predict(model5))^2)
+mse6 <- mean((wine_train2$TARGET - predict(model6))^2)
+mse7 <- mean((wine_train2$TARGET - predict(model7))^2)
+mse8 <- mean((wine_train2$TARGET - predict(model8))^2)
+mse9 <- mean((wine_train2$TARGET - predict(model9))^2)
+mse10 <- mean((wine_train2$TARGET - predict(model10))^2)
+mse11 <- mean((wine_train2$TARGET - predict(model11))^2)
+mse12 <- mean((wine_train2$TARGET - predict(model12))^2)
+compare_aic_mse <- matrix(c(mse1, mse2, mse3, mse4, mse5, mse6, mse7, mse8, mse9, mse10, mse11, mse12, aic1, aic2, aic3, aic4, aic5, aic6, aic7, aic8, NA, NA, 30060.23, NA),nrow=12,ncol=2,byrow=FALSE)
+rownames(compare_aic_mse) <- c("Model1","Model2","Model3","Model4","Model5","Model6","Model7","Model8","Model9","Model10","Model11","Model12")
+colnames(compare_aic_mse) <- c("MSE","AIC")
+compare_models <- as.data.frame(compare_models)
+kable(compare_aic_mse)  %>% 
+  kable_styling(full_width = T)
+```
+Similar MSE values are observed for Poisson and negative binomial models. 
+
+We can compare our zero inflated model using a Vuong test to a normal Poisson model. 
+
+
+```{r}
+vuong(model4,model12)
+```
+Model2, or our Zero Inflated model, would seem to be better than our non inflated model. 
+
+
+## Compare Models by Loss
+
+Use test data and check the output
+
+In order to validate we will use squared loss and squared difference to select model (MSE) from predicting on selected training datasets. Smaller numbers would indicate a truer fit. 
+
+```{r compareloss, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+modelValidation <- function(mod){
+  preds = predict(mod, wine_test2)
+  diffMat = as.numeric(preds) - as.numeric(wine_test2$TARGET)
+  diffMat = diffMat^2
+  loss <- mean(diffMat)
+  return(loss)
+}
+compare_models <- matrix(c(modelValidation(model1),modelValidation(model2),modelValidation(model3),modelValidation(model4),modelValidation(model5),modelValidation(model6),
+                           modelValidation(model7),modelValidation(model8),modelValidation(model9),modelValidation(model10),modelValidation(model11),modelValidation(model12)),
+                         nrow=12,ncol=1,byrow=TRUE)
+rownames(compare_models) <- c("Model1","Model2","Model3","Model4","Model5","Model6","Model7","Model8","Model9","Model10","Model11","Model12")
+colnames(compare_models) <- c("Loss:")
+compare_models <- as.data.frame(compare_models)
+compare_models
+```
+
+
+Based on above results these are our observation 
+
+-> Linear model performed well.
+-> Poisson regression model and Negative binomial model did not performed as expected.
+-> We expected Ordinal logistic regression to be a better model but it did not performed well.
+
+At this point we are concentrated more on square loss which tells us the accuracy of our model
+
+Zero Poisson Inflation seems to be the most accurate model with least loss score, and had good results from a Vuong test. 
+
+If we consider all the factors like least loss, good MSE and AIC score we found 'Zero Inflated Poisson' as our best one.
+
+## Prediction on Evaluation Data
+
+Here we use MICE just like how we used earlier for imputing and log transformation for AcidIndex.
+
+```{r predict, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+data_e_mod <- data_eval %>% dplyr::select(-(IN)) %>% mice(m=1, maxit = 5, seed = 42)
+wine_eval <- as.data.frame(complete(data_e_mod))
+wine_eval$AcidIndex <- log(wine_eval$AcidIndex)
+wine_eval$TARGET <- predict(model12, newdata=wine_eval)
+write.csv(wine_eval,"Evaluation_Full_Data.csv", row.names=FALSE)
+```
+
+Display the Predicted values
+
+```{r displaypredict, message=FALSE, warning=FALSE, echo=FALSE, results='show'}
+pander(head(data_predicted_eval <- read_csv("Evaluation_Full_Data.csv")))
+```
+
+For TARGET: Number of Cases Purchased as Predicted
+
+```{r eval=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='show'}
+options(width=100)
+round(with(data_predicted_eval, c(summary(TARGET), StdD=sd(TARGET), Skew=skewness(TARGET), Kurt=kurtosis(TARGET))),2)
+```
+
+### Predicted Evaluation data
+
+https://github.com/vijay564/Data621/blob/main/Evaluation_Full_Data.csv
+
+# Appendix
+
+https://github.com/vijay564/Data621/blob/main/Data621_Hw5.Rmd
